@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Blocks a push that would put a secret, a tfstate/tfvars file, or a bare AWS account ID into
+# this (public) repo's history. Not wired up by git on its own - see README's "Git hooks".
+#
+# Scans the whole history every time (--all), not just the commits being pushed: cheap at this
+# repo's size, and it's what actually caught the problem this hook exists to prevent (an
+# account ID that had already been sitting in old commits for a while - see
+# docs/PLAN.md and the 2026-10 "making the repo public" work).
+
+set -euo pipefail
+
+status=0
+
+echo "pre-push: gitleaks..."
+if ! gitleaks detect --source . --log-opts="--all" --no-banner; then
+  echo "pre-push: gitleaks found a potential secret - see above. Push blocked."
+  status=1
+fi
+
+echo "pre-push: checking for tracked tfstate/tfvars files..."
+tracked_state=$(git ls-files -- '*.tfstate' '*.tfstate.*' '*.tfvars' ':!*.tfvars.example' || true)
+if [ -n "$tracked_state" ]; then
+  echo "$tracked_state"
+  echo "pre-push: the above are gitignored for a reason (state has resource data, tfvars have"
+  echo "account emails) - they must have been added with 'git add -f'. Push blocked."
+  status=1
+fi
+
+echo "pre-push: checking for bare AWS account IDs..."
+account_id_hits=$(git log --all -p -- . ':!*.terraform.lock.hcl' \
+  | grep -nE '[^0-9a-zA-Z][0-9]{12}[^0-9a-zA-Z]' || true)
+if [ -n "$account_id_hits" ]; then
+  echo "pre-push: found what looks like a bare AWS account ID in history. Run"
+  echo "  git log --all -p -- . ':!*.terraform.lock.hcl' | grep -nE '[^0-9a-zA-Z][0-9]{12}[^0-9a-zA-Z]'"
+  echo "to find it. Use a variable, a GitHub repo variable, or a data lookup instead - see"
+  echo "CLAUDE.md's hard rules. Push blocked."
+  status=1
+fi
+
+if [ "$status" -eq 0 ]; then
+  echo "pre-push: clean."
+fi
+
+exit "$status"

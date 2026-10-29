@@ -19,3 +19,18 @@ that's intentional, not a gap.
 
 Nothing changes on the cluster except through a commit here that ArgoCD syncs. No `kubectl apply`
 or `helm install` by hand, except inside `infra`'s bootstrap module.
+
+## Git hooks
+
+This repo is public. `scripts/git-hooks/pre-push` runs `gitleaks` against the full history plus
+two custom checks (a tracked `.tfstate`/`.tfvars` file, a bare 12-digit AWS account ID) on every
+push - see `infra/README.md`'s "Git hooks" for the full rationale, which applies here too even
+though this repo hasn't needed either check yet.
+
+Not wired up by git on its own - each clone needs to opt in once:
+
+```
+git config core.hooksPath scripts/git-hooks
+```
+
+Requires `gitleaks` (`brew install gitleaks`).
