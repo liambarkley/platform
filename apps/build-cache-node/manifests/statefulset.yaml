@@ -25,6 +25,9 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
+            - name: config
+              mountPath: /data/conf/config.yaml
+              subPath: config.yaml
           resources:
             requests:
               cpu: 250m
@@ -46,6 +49,10 @@ spec:
               port: 5071
             initialDelaySeconds: 30
             periodSeconds: 20
+      volumes:
+        - name: config
+          configMap:
+            name: build-cache-node-config
   volumeClaimTemplates:
     - metadata:
         name: data

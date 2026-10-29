@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: build-cache-node-config
+data:
+  # TEMPORARY, internal-only: anonymousLevel readwrite is fine while the Service is
+  # ClusterIP-only (nothing outside the cluster can reach it), purely to validate the cache
+  # node actually works end-to-end before the bigger "expose to the internet" step. This MUST
+  # change to real user credentials (cache.accessControl.users, a salted password hash via
+  # `java -jar build-cache-node-21.2.jar hash`, stored as a Secret - never anonymousLevel
+  # readwrite) before any ALB/Ingress makes this reachable from outside the cluster. The
+  # node's own startup log is explicit about why: "anonymous access ... may allow anyone to
+  # write malicious cache entries."
+  config.yaml: |
+    version: 5
+    cache:
+      accessControl:
+        anonymousLevel: "readwrite"

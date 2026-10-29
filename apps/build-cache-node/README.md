@@ -29,10 +29,18 @@ README's "honest limits" too.
   `gp3` volume matching the node's own default max cache size.
 - `manifests/service.yaml` - `ClusterIP`, internal only for now.
 
+## Access control - temporary, read before touching this
+
+`manifests/configmap.yaml` sets `anonymousLevel: readwrite` right now. That's only acceptable
+because the `Service` is `ClusterIP` - nothing outside the cluster can reach it. The node's own
+startup log says why this can't stay that way: *"anonymous access ... may allow anyone to write
+malicious cache entries."* Before any ALB/Ingress makes this internet-reachable, this needs
+real user credentials instead (`cache.accessControl.users`, a salted password hash via `java
+-jar build-cache-node-21.2.jar hash`, the password itself in a Secret - never committed).
+
 ## Status
 
-Deployed, internal-only. **Not yet reachable from GitHub Actions** - that needs an
-ALB/Ingress (the AWS Load Balancer Controller isn't installed yet either) plus some form of
-auth in front of it, since an internet-reachable cache node with no auth would let anyone who
-finds its DNS name push or pull cache entries. Tracked as the next concrete step in
-`docs/PLAN.md`'s phase 3 section, not done here.
+Deployed, internal-only, confirmed working (`gp3` PVC bound, pod `Running`, cache accessible
+cluster-internally). **Not yet reachable from GitHub Actions** - that needs an ALB/Ingress (the
+AWS Load Balancer Controller isn't installed yet either) and the real auth described above.
+Tracked as the next concrete step in `docs/PLAN.md`'s phase 3 section, not done here.
