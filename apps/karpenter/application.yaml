@@ -1,0 +1,50 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: karpenter
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  sources:
+    # The Karpenter controller itself, from AWS's public OCI chart registry.
+    - repoURL: public.ecr.aws/karpenter
+      chart: karpenter
+      targetRevision: "1.15.1"
+      helm:
+        releaseName: karpenter
+        valuesObject:
+          # No eks.amazonaws.com/role-arn annotation here - the controller's IAM role is bound
+          # to this service account via EKS Pod Identity (infra's modules/eks), not IRSA, so no
+          # AWS account ID has to live in this repo. See infra/modules/eks/README.md.
+          serviceAccount:
+            name: karpenter
+          settings:
+            clusterName: build-cache-dev
+            interruptionQueue: build-cache-dev-karpenter-interruption
+          # 1, not the chart's default of 2: the system node group that runs this (see
+          # nodeSelector below) only has 3 free pod slots total across its 2 nodes right now
+          # (t3.small's 11-pod EKS limit, mostly used up by EKS's own system daemonsets plus
+          # ArgoCD - see docs/PLAN.md's phase 2 notes). A second replica risks the same
+          # "Too many pods" failure that hit ArgoCD's first install, and pod anti-affinity
+          # between replicas could get one of them permanently stuck Pending.
+          replicas: 1
+          # Runs on the always-on system node group, not a node Karpenter itself provisions -
+          # it can't bootstrap its own capacity otherwise. Matches the `node-pool: system`
+          # label infra's modules/eks puts on that node group.
+          nodeSelector:
+            node-pool: system
+    # This repo's own EC2NodeClass/NodePool - plain manifests, not a chart.
+    - repoURL: https://github.com/liambarkley/platform.git
+      targetRevision: main
+      path: apps/karpenter/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

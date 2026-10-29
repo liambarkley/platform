@@ -4,11 +4,13 @@ What ArgoCD deploys onto the EKS cluster for the Build Cache Platform SRE portfo
 
 Full story: see `docs/PLAN.md` in the parent `sre_portfolio/` workspace (not part of this repo).
 
-Empty until phase 2 (`infra`'s `bootstrap` module installs ArgoCD and points it at this repo) —
-that's intentional, not a gap.
+`infra`'s `bootstrap` module installs ArgoCD and points it at this repo's `apps/` directory
+(phase 2) — `apps/karpenter/` is the first thing actually in it.
 
 ## Layout
 
+- `apps/karpenter/` — the Karpenter controller + a default `NodePool`/`EC2NodeClass` (phase 2,
+  deferred from `infra/modules/eks` until there was a live cluster to validate against).
 - `apps/build-cache-node/` — the Develocity Build Cache Node (phase 3).
 - `apps/demo-spring-app/` — Spring Boot app built with Gradle, exercises the cache (phase 3).
 - `apps/monitoring/` — kube-prometheus-stack + dashboards (phase 4).

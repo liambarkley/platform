@@ -1,0 +1,26 @@
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: default
+spec:
+  amiFamily: AL2023
+  amiSelectorTerms:
+    - alias: al2023@latest
+  # Pre-created by Terraform (infra/modules/eks's aws_iam_instance_profile.node), not the
+  # EC2NodeClass's alternative `role` field - Karpenter would otherwise need extra IAM
+  # permissions (iam:CreateInstanceProfile etc.) it doesn't have, and this way the instance
+  # profile stays a Terraform-owned resource, not something Karpenter manages on its own.
+  instanceProfile: build-cache-dev-eks-node
+  subnetSelectorTerms:
+    # Matches every private subnet infra/modules/network creates - no need to name them, or
+    # the VPC, individually.
+    - tags:
+        kubernetes.io/role/internal-elb: "1"
+  securityGroupSelectorTerms:
+    # The cluster security group EKS creates and tags automatically - not a custom one, since
+    # nothing here needs node-to-node rules beyond what the cluster SG already allows.
+    - tags:
+        aws:eks:cluster-name: build-cache-dev
+  tags:
+    project: build-cache
+    Module: karpenter
