@@ -1,0 +1,29 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: build-cache-node
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    # Plain HTTP on the ALB's own AWS-generated DNS name - no domain available to this
+    # project, so no ACM certificate to terminate TLS with (see docs/PLAN.md's phase 3 notes
+    # and the main README's honest-limits section). Real user credentials (not anonymous -
+    # see configmap.yaml) still gate reads/writes; the gap this leaves is that those
+    # credentials travel in cleartext, a deliberate, documented trade-off, not an oversight.
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+    # /ping - documented, unauthenticated regardless of access-control settings. Confirmed
+    # against the live pod: every other path, including /, returns 401 without real
+    # credentials, which an ALB health check can't provide.
+    alb.ingress.kubernetes.io/healthcheck-path: /ping
+spec:
+  ingressClassName: alb
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: build-cache-node
+                port:
+                  number: 5071

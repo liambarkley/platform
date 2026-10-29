@@ -29,26 +29,56 @@ README's "honest limits" too.
   `gp3` volume matching the node's own default max cache size.
 - `manifests/service.yaml` - `ClusterIP`, internal only for now.
 
-## Access control - temporary, read before touching this
+## Access control
 
-`manifests/configmap.yaml` sets `anonymousLevel: readwrite` right now. That's only acceptable
-because the `Service` is `ClusterIP` - nothing outside the cluster can reach it. The node's own
-startup log says why this can't stay that way: *"anonymous access ... may allow anyone to write
-malicious cache entries."* Before any ALB/Ingress makes this internet-reachable, this needs
-real user credentials instead (`cache.accessControl.users`, a salted password hash via `java
--jar build-cache-node-21.2.jar hash`, the password itself in a Secret - never committed).
+`manifests/configmap.yaml` sets `anonymousLevel: read` - anyone can pull cache entries with no
+credentials (normal for a build cache; a PR build from a fork shouldn't need a secret just to
+read). Writing requires the `ci` user, whose password hash is in that ConfigMap.
+
+**How that hash was generated, for the record (and for rotating it later) - no plain password
+ever appears in this log, by design:**
+
+1. Liam generated a password locally: `printf '%s%s!\n' "$(openssl rand -hex 16)" "$(openssl
+   rand -hex 1 | cut -c1 | tr 'abcdef' '123456')"` - 32 hex chars plus a digit and `!` to
+   satisfy typical complexity rules.
+2. Hashed it on the live pod, interactively, so the plain password was only ever typed into a
+   real terminal prompt - never piped, echoed, logged, or seen by Claude Code:
+   ```
+   kubectl exec -it build-cache-node-0 -n build-cache-node -c build-cache-node -- \
+     java -jar /build-cache-node.jar hash
+   ```
+   (Piping the password via `echo | kubectl exec -i` does not work here - the tool uses Java's
+   `Console.readPassword()`, which requires a real TTY and silently fails against piped stdin.
+   `-it`, not `-i`, is the fix.)
+3. The command printed a `"salt:hash"` string - that's what's in `manifests/configmap.yaml`.
+   It's a one-way hash, safe to commit.
+4. The plain password itself was never pasted to Claude Code and isn't recorded in this repo
+   anywhere - Liam has it, for a future GitHub Actions secret (the CI workflow step, not done
+   yet).
+
+To rotate: repeat steps 1-3 with a new password, replace the hash in the ConfigMap, update
+whatever secret store CI ends up using.
+
+Before this, briefly (while the `Service` was still `ClusterIP`-only, nothing outside the
+cluster could reach it), the config ran with `anonymousLevel: readwrite` just to validate the
+cache worked at all - gone now, replaced by the above.
 
 ## Status
 
-Deployed, internal-only, confirmed functionally working - not just "pod is Running":
-`PUT`/`GET` against `/cache/<hash>` from inside the cluster round-tripped real data
-(Gradle's documented HTTP build cache protocol), both returning `200`. **Not yet reachable
-from GitHub Actions** - that needs an ALB/Ingress (the AWS Load Balancer Controller isn't
-installed yet either) and the real auth described above. Tracked as the next concrete step in
-`docs/PLAN.md`'s phase 3 section, not done here.
+Deployed, internal-only still (the `Ingress` for ALB exposure is written in
+`manifests/ingress.yaml` but not yet applied - needs the AWS Load Balancer Controller's IAM
+Terraform applied first). Confirmed functionally working - not just "pod is Running":
+`PUT`/`GET` against `/cache/<hash>` from inside the cluster round-tripped real data (Gradle's
+documented HTTP build cache protocol), both returning `200`, and `/ping` (the documented,
+always-unauthenticated health endpoint - confirmed directly, since every other path including
+`/` returns `401` without real credentials) is what both the pod's own probes and the Ingress's
+ALB health check use.
 
-Getting here took three real, serial bugs on the live pod - the app rejecting a `ConfigMap`-
-mounted config file as read-only, the fix for that silently not applying because the
-StatefulSet controller stalled mid-rollout (needed a manual `kubectl delete pod` to unstick,
-not a manifest change), and the access-control warning itself. None affected the
-StorageClass/PVC/image choices, which worked on the first attempt.
+Getting the StatefulSet healthy took three real, serial bugs on the live pod - the app
+rejecting a `ConfigMap`-mounted config file as read-only, the fix for that silently not
+applying because the StatefulSet controller stalled mid-rollout (needed a manual `kubectl
+delete pod` to unstick, not a manifest change), and the access-control warning itself. None
+affected the StorageClass/PVC/image choices, which worked on the first attempt. No `TLS` -
+plain HTTP on the ALB's own AWS-generated DNS name, since this project has no domain to get an
+ACM certificate for; a deliberate, documented trade-off (credentials travel in cleartext), not
+an oversight.

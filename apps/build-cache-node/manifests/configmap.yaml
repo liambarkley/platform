@@ -3,16 +3,19 @@ kind: ConfigMap
 metadata:
   name: build-cache-node-config
 data:
-  # TEMPORARY, internal-only: anonymousLevel readwrite is fine while the Service is
-  # ClusterIP-only (nothing outside the cluster can reach it), purely to validate the cache
-  # node actually works end-to-end before the bigger "expose to the internet" step. This MUST
-  # change to real user credentials (cache.accessControl.users, a salted password hash via
-  # `java -jar build-cache-node-21.2.jar hash`, stored as a Secret - never anonymousLevel
-  # readwrite) before any ALB/Ingress makes this reachable from outside the cluster. The
-  # node's own startup log is explicit about why: "anonymous access ... may allow anyone to
-  # write malicious cache entries."
+  # anonymousLevel "read": anyone can pull cache entries with no credentials (normal for a
+  # build cache - PR builds from forks, etc. shouldn't need a secret just to read). Writing
+  # requires the "ci" user. Its password hash below is safe to commit - it's a one-way salted
+  # hash (`java -jar build-cache-node.jar hash`, run interactively against the live pod so the
+  # plain password was never typed anywhere I could see it, log, or commit - see
+  # platform/docs/postmortems or the README's "Access control" section for the exact steps).
+  # The plain password itself lives only with Liam, for a future GitHub Actions secret.
   config.yaml: |
     version: 5
     cache:
       accessControl:
-        anonymousLevel: "readwrite"
+        anonymousLevel: "read"
+        users:
+          ci:
+            password: "n8vIY8STrAmqbh4MOXakJs2E+eaChYzZ/Dy2bKs4vGQ=:R+osFliwciWMYs7llsz3k/oPfHV45pNwOT6YZqpCR0s="
+            level: "readwrite"

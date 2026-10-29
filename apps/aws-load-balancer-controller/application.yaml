@@ -1,0 +1,40 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: aws-load-balancer-controller
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://aws.github.io/eks-charts
+    chart: aws-load-balancer-controller
+    targetRevision: "3.6.2"
+    helm:
+      releaseName: aws-load-balancer-controller
+      valuesObject:
+        clusterName: build-cache-dev
+        region: ca-central-1
+        # No eks.amazonaws.com/role-arn annotation - bound to this service account via EKS
+        # Pod Identity (infra/modules/eks), same reason as Karpenter: no account ID in this
+        # repo. vpcId is left unset deliberately - the controller auto-detects it via IMDS on
+        # the node it runs on, which avoids needing to write that ID here either.
+        serviceAccount:
+          name: aws-load-balancer-controller
+        # 1, not the chart's default of 2 - the system node group has essentially no free pod
+        # slots left right now (1 free across both nodes, confirmed via `kubectl get pods -A`
+        # before writing this). Deliberately no nodeSelector pinning this to node-pool=system
+        # either, unlike Karpenter's own controller - this one doesn't provision its own
+        # capacity, so there's no bootstrapping circularity in letting Karpenter provision a
+        # node for it if nothing existing fits.
+        replicaCount: 1
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

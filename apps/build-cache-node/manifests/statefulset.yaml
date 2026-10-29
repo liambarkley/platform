@@ -46,17 +46,18 @@ spec:
             limits:
               cpu: "1"
               memory: 1Gi
-          # TCP, not an HTTP path - the exact health-check endpoint isn't documented anywhere
-          # I could confirm, and guessing wrong would fail probes against a container that's
-          # actually healthy. Revisit once the node's actually reachable and its real HTTP
-          # surface can be checked directly.
+          # /ping - documented, unauthenticated regardless of access-control settings
+          # (everything else, including /, returns 401 without real credentials - confirmed
+          # against the live pod before using this).
           readinessProbe:
-            tcpSocket:
+            httpGet:
+              path: /ping
               port: 5071
             initialDelaySeconds: 10
             periodSeconds: 10
           livenessProbe:
-            tcpSocket:
+            httpGet:
+              path: /ping
               port: 5071
             initialDelaySeconds: 30
             periodSeconds: 20
