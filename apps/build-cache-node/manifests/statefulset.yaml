@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: build-cache-node
+  labels:
+    app: build-cache-node
+spec:
+  serviceName: build-cache-node
+  replicas: 1
+  selector:
+    matchLabels:
+      app: build-cache-node
+  template:
+    metadata:
+      labels:
+        app: build-cache-node
+    spec:
+      containers:
+        - name: build-cache-node
+          image: gradle/build-cache-node:21.2
+          args: ["start"]
+          ports:
+            - name: http
+              containerPort: 5071
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          # TCP, not an HTTP path - the exact health-check endpoint isn't documented anywhere
+          # I could confirm, and guessing wrong would fail probes against a container that's
+          # actually healthy. Revisit once the node's actually reachable and its real HTTP
+          # surface can be checked directly.
+          readinessProbe:
+            tcpSocket:
+              port: 5071
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 5071
+            initialDelaySeconds: 30
+            periodSeconds: 20
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: gp3
+        # Matches the image's own default max cache size (10 GiB) - no point provisioning more
+        # disk than the application itself will ever fill, until that default is deliberately
+        # raised.
+        resources:
+          requests:
+            storage: 10Gi

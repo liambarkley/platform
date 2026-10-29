@@ -1,0 +1,18 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3
+  # Deliberately not annotated as the cluster default (storageclass.kubernetes.io/is-default-
+  # class) - EKS already creates a "gp2" StorageClass by default, using the legacy
+  # kubernetes.io/aws-ebs in-tree provisioner. That provisioner was removed from Kubernetes
+  # itself in 1.23+, so EKS's own default StorageClass can no longer actually provision
+  # anything on this cluster (1.31) - confirmed present but unusable via `kubectl get
+  # storageclass` before writing this. Every PVC here names storageClassName explicitly rather
+  # than relying on either StorageClass being "the" default.
+provisioner: ebs.csi.aws.com
+parameters:
+  type: gp3
+  encrypted: "true"
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true

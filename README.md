@@ -11,7 +11,8 @@ Full story: see `docs/PLAN.md` in the parent `sre_portfolio/` workspace (not par
 
 - `apps/karpenter/` — the Karpenter controller + a default `NodePool`/`EC2NodeClass` (phase 2,
   deferred from `infra/modules/eks` until there was a live cluster to validate against).
-- `apps/build-cache-node/` — the Develocity Build Cache Node (phase 3).
+- `apps/build-cache-node/` — the Develocity Build Cache Node (phase 3, deployed internal-only;
+  internet exposure for GitHub Actions is the next step - see its own README).
 - `apps/demo-spring-app/` — Spring Boot app built with Gradle, exercises the cache (phase 3).
 - `apps/monitoring/` — kube-prometheus-stack + dashboards (phase 4).
 - `apps/velero/` — scheduled backups to S3 (phase 5).

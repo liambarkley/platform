@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: build-cache-node
+  labels:
+    app: build-cache-node
+spec:
+  # ClusterIP for now - internal only. GitHub-hosted Actions runners reaching this over the
+  # internet needs an ALB/Ingress (plus auth in front of it, since anyone who finds the DNS
+  # name could otherwise push/pull cache entries) - a separate, not-yet-done step. See
+  # README.md's "Status".
+  type: ClusterIP
+  selector:
+    app: build-cache-node
+  ports:
+    - name: http
+      port: 5071
+      targetPort: 5071

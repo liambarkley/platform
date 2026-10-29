@@ -1,7 +1,38 @@
 # build-cache-node
 
-Develocity Build Cache Node. Built in phase 3 — licence terms for the free image still need
-confirming (see `docs/PLAN.md`), and network exposure (so GitHub-hosted Actions runners can reach
-it) plus endpoint auth aren't designed yet either.
+The Develocity Build Cache Node - the service this whole project is built around. Phase 3.
 
-Not implemented yet.
+## Licence terms (the open question from `docs/PLAN.md`, now resolved)
+
+Free to self-host, standalone, no license key or Develocity account registration required for
+basic operation - confirmed against the official docs before writing any of this. Image:
+`gradle/build-cache-node:21.2` on Docker Hub. Registering a node with a full Develocity
+installation is optional and only unlocks extra features (centralized monitoring, cache entry
+replication across multiple nodes) that this project doesn't use.
+
+**Known, deliberate limitation**: the Build Cache Node is deprecated - no longer distributed
+or supported after December 31, 2026, with Develocity Edge as the stated successor. Used here
+anyway: it's still freely available today, works for this project's timeline, and the
+deprecation itself is a reasonable thing to be able to speak to directly (what it is, why it's
+EOL, what the real migration path would be) rather than a gap to hide. Documented in the main
+README's "honest limits" too.
+
+## Layout
+
+- `application.yaml` - the ArgoCD Application, plain manifests (no Helm chart exists for this).
+- `manifests/storageclass.yaml` - a `gp3` StorageClass using the EBS CSI driver
+  (`ebs.csi.aws.com`). Needed because EKS's own default `gp2` StorageClass uses the legacy
+  in-tree provisioner, which no longer actually works on this cluster's Kubernetes version
+  (1.31) - confirmed present-but-broken via `kubectl get storageclass` before writing this.
+- `manifests/statefulset.yaml` - a single replica (this project doesn't use the
+  multi-node-replication feature, which needs Develocity registration anyway), with a 10Gi
+  `gp3` volume matching the node's own default max cache size.
+- `manifests/service.yaml` - `ClusterIP`, internal only for now.
+
+## Status
+
+Deployed, internal-only. **Not yet reachable from GitHub Actions** - that needs an
+ALB/Ingress (the AWS Load Balancer Controller isn't installed yet either) plus some form of
+auth in front of it, since an internet-reachable cache node with no auth would let anyone who
+finds its DNS name push or pull cache entries. Tracked as the next concrete step in
+`docs/PLAN.md`'s phase 3 section, not done here.
