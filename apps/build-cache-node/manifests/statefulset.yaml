@@ -15,6 +15,20 @@ spec:
       labels:
         app: build-cache-node
     spec:
+      # ConfigMap-backed volumes always mount read-only, even with subPath - but the app
+      # rejects a read-only config.yaml outright ("Config file must be writable"), confirmed
+      # against the live pod before writing this. Standard fix: copy the ConfigMap's version
+      # onto the writable PVC once at startup, then the main container never touches the
+      # ConfigMap mount directly.
+      initContainers:
+        - name: copy-config
+          image: gradle/build-cache-node:21.2
+          command: ["sh", "-c", "mkdir -p /data/conf && cp /config-source/config.yaml /data/conf/config.yaml"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: config-source
+              mountPath: /config-source
       containers:
         - name: build-cache-node
           image: gradle/build-cache-node:21.2
@@ -25,9 +39,6 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
-            - name: config
-              mountPath: /data/conf/config.yaml
-              subPath: config.yaml
           resources:
             requests:
               cpu: 250m
@@ -50,7 +61,7 @@ spec:
             initialDelaySeconds: 30
             periodSeconds: 20
       volumes:
-        - name: config
+        - name: config-source
           configMap:
             name: build-cache-node-config
   volumeClaimTemplates:
