@@ -40,7 +40,15 @@ real user credentials instead (`cache.accessControl.users`, a salted password ha
 
 ## Status
 
-Deployed, internal-only, confirmed working (`gp3` PVC bound, pod `Running`, cache accessible
-cluster-internally). **Not yet reachable from GitHub Actions** - that needs an ALB/Ingress (the
-AWS Load Balancer Controller isn't installed yet either) and the real auth described above.
-Tracked as the next concrete step in `docs/PLAN.md`'s phase 3 section, not done here.
+Deployed, internal-only, confirmed functionally working - not just "pod is Running":
+`PUT`/`GET` against `/cache/<hash>` from inside the cluster round-tripped real data
+(Gradle's documented HTTP build cache protocol), both returning `200`. **Not yet reachable
+from GitHub Actions** - that needs an ALB/Ingress (the AWS Load Balancer Controller isn't
+installed yet either) and the real auth described above. Tracked as the next concrete step in
+`docs/PLAN.md`'s phase 3 section, not done here.
+
+Getting here took three real, serial bugs on the live pod - the app rejecting a `ConfigMap`-
+mounted config file as read-only, the fix for that silently not applying because the
+StatefulSet controller stalled mid-rollout (needed a manual `kubectl delete pod` to unstick,
+not a manifest change), and the access-control warning itself. None affected the
+StorageClass/PVC/image choices, which worked on the first attempt.
