@@ -21,6 +21,15 @@ spec:
     # nothing here needs node-to-node rules beyond what the cluster SG already allows.
     - tags:
         aws:eks:cluster-name: build-cache-dev
+  # EKS's own default caps IMDS at one network hop (httpPutResponseHopLimit 1) - fine for the
+  # host, but a pod is one hop further out, so any pod needing instance metadata (e.g.
+  # auto-detecting its VPC ID) times out reaching it on a default node. Confirmed on the
+  # system node group's instances via `aws ec2 describe-instances` before fixing this there
+  # (infra/modules/eks's aws_launch_template.system_node) - applying the same fix here so a
+  # pod that happens to land on a Karpenter-provisioned node instead doesn't hit it too.
+  metadataOptions:
+    httpTokens: required
+    httpPutResponseHopLimit: 2
   tags:
     project: build-cache
     Module: karpenter
