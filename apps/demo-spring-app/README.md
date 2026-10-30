@@ -37,3 +37,20 @@ parameter names don't. See `infra/modules/rds`.
 `demo-spring-app`'s GitHub Container Registry package needs to be public for the cluster to
 pull it with no credentials - it's private by default even though the repo itself is public.
 One-time setting, not something Terraform or this repo manages.
+
+## Status
+
+**Live and confirmed working end-to-end against the real database** - not just "pod is
+Running": the Hikari connection pool log shows a real JDBC connection to the actual RDS
+instance, and a `POST`/`GET /widgets` from inside the cluster round-tripped real data through
+it (`{"name":"sprocket","id":1}`).
+
+Two real bugs on the way, both fixed by checking the live pod rather than guessing twice:
+- The init container's own image, `amazon/aws-cli:2`, doesn't exist on Docker Hub (AWS
+  publishes it to their own public ECR gallery instead) - `ErrImagePull` until pointed at
+  `public.ecr.aws/aws-cli/aws-cli:2.31.11`, confirmed to actually resolve before using it.
+- Karpenter provisioned the node this runs on for real (both existing nodes were full) - its
+  first attempt tried spot and failed (`AuthFailure.ServiceLinkedRoleCreationNotPermitted`;
+  this AWS account had never used EC2 Spot before), then fell back to on-demand automatically
+  per the NodePool's capacity-type list. Fixed properly in `infra/modules/eks` (a missing
+  `iam:CreateServiceLinkedRole` grant) rather than left as a silent, permanent fallback.
