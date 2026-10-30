@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-spring-app
+  labels:
+    app: demo-spring-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: demo-spring-app
+  template:
+    metadata:
+      labels:
+        app: demo-spring-app
+    spec:
+      serviceAccountName: demo-spring-app
+      # No nodeSelector - unlike Karpenter's own controller, this has no bootstrapping
+      # circularity (it doesn't provision capacity itself), so if the existing nodes are full,
+      # Karpenter provisioning a new one for it is exactly the intended behavior, not a problem
+      # to work around.
+      initContainers:
+        - name: fetch-db-config
+          image: amazon/aws-cli:2
+          env:
+            - name: AWS_REGION
+              value: ca-central-1
+            # Fixed, deterministic parameter names (built only from the environment name,
+            # "build-cache-dev") - never the RDS instance's actual address or the Secrets
+            # Manager secret's own ARN, both of which are AWS-generated and change every time
+            # infra/envs/dev is destroyed and recreated. See infra/modules/rds.
+            - name: DB_ADDRESS_PARAM
+              value: /build-cache-dev/rds/address
+            - name: DB_SECRET_ARN_PARAM
+              value: /build-cache-dev/rds/secret-arn
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              aws ssm get-parameter --region "$AWS_REGION" --name "$DB_ADDRESS_PARAM" \
+                --with-decryption --query Parameter.Value --output text > /secrets/db-address
+              SECRET_ARN=$(aws ssm get-parameter --region "$AWS_REGION" --name "$DB_SECRET_ARN_PARAM" \
+                --with-decryption --query Parameter.Value --output text)
+              # sed, not a JSON parser - the amazon/aws-cli image doesn't ship one, and RDS's
+              # manage_master_user_password secret format is a stable, flat, single-line JSON
+              # object, so a field-extraction regex is reliable enough for this.
+              aws secretsmanager get-secret-value --region "$AWS_REGION" --secret-id "$SECRET_ARN" \
+                --query SecretString --output text \
+                | sed -n 's/.*"password":"\([^"]*\)".*/\1/p' > /secrets/db-password
+          volumeMounts:
+            - name: secrets
+              mountPath: /secrets
+      containers:
+        - name: demo-spring-app
+          image: ghcr.io/liambarkley/demo-spring-app:latest
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: DB_NAME
+              value: demo
+            - name: DB_USERNAME
+              value: postgres
+          volumeMounts:
+            - name: secrets
+              mountPath: /secrets
+              readOnly: true
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 20
+      volumes:
+        - name: secrets
+          emptyDir: {}
