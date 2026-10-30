@@ -21,7 +21,9 @@ spec:
       # to work around.
       initContainers:
         - name: fetch-db-config
-          image: amazon/aws-cli:2
+          # AWS's own public ECR gallery, not Docker Hub - "amazon/aws-cli:2" doesn't exist
+          # there (confirmed the hard way: ErrImagePull on the live pod before this fix).
+          image: public.ecr.aws/aws-cli/aws-cli:2.31.11
           env:
             - name: AWS_REGION
               value: ca-central-1
