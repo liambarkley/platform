@@ -7,6 +7,16 @@ metadata:
 spec:
   serviceName: build-cache-node
   replicas: 1
+  # Kubernetes retains StatefulSet-generated PVCs on deletion by default (data safety) - found
+  # the hard way while tearing this down for the night: the Application's own cascade-delete
+  # doesn't touch this PVC either, since it's generated from volumeClaimTemplates below, not a
+  # manifest ArgoCD applied directly, so it was left Bound (and its EBS volume undeleted) after
+  # the whole app was removed. whenDeleted: Delete is correct here specifically because this is
+  # a cache with no data worth preserving across a full redeploy - whenScaled stays the default
+  # (Retain), since a temporary scale-down to 0 shouldn't nuke the cache.
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+    whenScaled: Retain
   selector:
     matchLabels:
       app: build-cache-node
