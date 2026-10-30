@@ -65,20 +65,29 @@ cache worked at all - gone now, replaced by the above.
 
 ## Status
 
-Deployed, internal-only still (the `Ingress` for ALB exposure is written in
-`manifests/ingress.yaml` but not yet applied - needs the AWS Load Balancer Controller's IAM
-Terraform applied first). Confirmed functionally working - not just "pod is Running":
-`PUT`/`GET` against `/cache/<hash>` from inside the cluster round-tripped real data (Gradle's
-documented HTTP build cache protocol), both returning `200`, and `/ping` (the documented,
-always-unauthenticated health endpoint - confirmed directly, since every other path including
-`/` returns `401` without real credentials) is what both the pod's own probes and the Ingress's
-ALB health check use.
+**Live and internet-reachable**, confirmed end-to-end from outside the cluster entirely (not
+`kubectl exec`, an actual `curl` from outside AWS) against the ALB's own DNS name:
+- `GET /ping` → `200 SUCCESS`, unauthenticated.
+- `GET /cache/<hash>` with no credentials → `200`, returning real previously-cached data -
+  anonymous read works.
+- `PUT /cache/<hash>` with no credentials → `403` - anonymous write is correctly blocked.
 
-Getting the StatefulSet healthy took three real, serial bugs on the live pod - the app
-rejecting a `ConfigMap`-mounted config file as read-only, the fix for that silently not
-applying because the StatefulSet controller stalled mid-rollout (needed a manual `kubectl
-delete pod` to unstick, not a manifest change), and the access-control warning itself. None
-affected the StorageClass/PVC/image choices, which worked on the first attempt. No `TLS` -
-plain HTTP on the ALB's own AWS-generated DNS name, since this project has no domain to get an
-ACM certificate for; a deliberate, documented trade-off (credentials travel in cleartext), not
-an oversight.
+No `TLS` - plain HTTP on the ALB's own AWS-generated DNS name, since this project has no
+domain to get an ACM certificate for; a deliberate, documented trade-off (the `ci` user's
+credentials travel in cleartext), not an oversight.
+
+Real bugs hit getting here, beyond the StatefulSet ones (ConfigMap-mounted file rejected as
+read-only, a stalled rollout needing a manual pod delete, the access-control warning):
+1. The AWS Load Balancer Controller crash-looped: `failed to fetch VPC ID from instance
+   metadata ... context deadline exceeded`. Root cause confirmed via `aws ec2
+   describe-instances`: EKS's default launch template caps IMDS at one network hop, but a pod
+   is one hop further out than the host - fixed with a custom launch template on the system
+   node group (`infra/modules/eks`) raising it to 2, applied to Karpenter's `EC2NodeClass` too.
+2. That fix forced a full node group replacement (Terraform's `aws_eks_node_group` treats
+   adding a `launch_template` as `ForceNew`, even though the underlying AWS API supports an
+   in-place update) - temporary downtime for everything scheduled there, recovered on its own
+   once the new nodes came up.
+3. Right after the new nodes came up, the Ingress briefly failed with a TLS error calling the
+   controller's own admission webhook (`certificate signed by unknown authority`) - transient,
+   self-resolved within a couple of minutes without intervention, consistent with the
+   controller's webhook cert still catching up after its own restart.
