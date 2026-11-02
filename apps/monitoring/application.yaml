@@ -139,3 +139,10 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+      # Confirmed live, same session: without this, ArgoCD's default client-side apply
+      # silently fails on this chart's largest CRDs (Prometheus, Alertmanager,
+      # AlertmanagerConfig, ScrapeConfig, PrometheusAgent, ThanosRuler) - they exceed the
+      # kubectl.kubernetes.io/last-applied-configuration annotation's 262144-byte limit.
+      # Server-side apply doesn't use that annotation at all. A known kube-prometheus-stack-
+      # on-ArgoCD gotcha, not specific to anything else in this app.
+      - ServerSideApply=true
