@@ -15,6 +15,14 @@ metadata:
     # against the live pod: every other path, including /, returns 401 without real
     # credentials, which an ALB health check can't provide.
     alb.ingress.kubernetes.io/healthcheck-path: /ping
+    # CLAUDE.md's hard rule ("every AWS resource is tagged project=build-cache") missed this
+    # one until phase 4: the ALB is created by the AWS Load Balancer Controller, not Terraform,
+    # so it never went through any of the places that tag gets applied automatically
+    # (default_tags on the aws provider, or an explicit tags block). Phase 4's CloudWatch
+    # exporter (platform/apps/monitoring) also now depends on this tag directly - it discovers
+    # the ALB by it instead of a hardcoded ARN, which changes every time this Ingress is
+    # recreated (same reasoning as BUILD_CACHE_URL never being hardcoded anywhere either).
+    alb.ingress.kubernetes.io/tags: project=build-cache
 spec:
   ingressClassName: alb
   rules:
