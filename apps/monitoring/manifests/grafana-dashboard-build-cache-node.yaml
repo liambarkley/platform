@@ -1,0 +1,118 @@
+# Discovered automatically by the kube-prometheus-stack Grafana sidecar (grafana.sidecar.
+# dashboards.enabled: true in application.yaml's valuesObject) - any ConfigMap labeled
+# grafana_dashboard: "1" gets mounted and loaded with no manual Grafana UI step. Node health
+# itself isn't duplicated here - kube-prometheus-stack ships the standard node-exporter/
+# Kubernetes dashboards by default (grafana.defaultDashboardsEnabled), which already cover it.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-build-cache-node
+  labels:
+    grafana_dashboard: "1"
+data:
+  build-cache-node.json: |
+    {
+      "title": "Build Cache Node",
+      "uid": "build-cache-node",
+      "schemaVersion": 39,
+      "timezone": "browser",
+      "time": { "from": "now-6h", "to": "now" },
+      "refresh": "1m",
+      "tags": ["build-cache", "slo"],
+      "panels": [
+        {
+          "id": 1,
+          "title": "Cache hit rate",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+          "description": "Proxy metric, not a true cache hit/miss count: GET 200 vs 404 at the ALB. See cloudwatch-exporter.yaml for why the Build Cache Node itself can't be scored directly.",
+          "fieldConfig": {
+            "defaults": { "unit": "percentunit", "min": 0, "max": 1 }
+          },
+          "targets": [
+            {
+              "expr": "aws_alb_httpcode_target_2_xx_count_sum{job=\"cloudwatch-exporter\"} / clamp_min(aws_alb_request_count_sum{job=\"cloudwatch-exporter\"}, 1)",
+              "legendFormat": "hit rate"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "ALB request latency (TargetResponseTime)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+          "fieldConfig": {
+            "defaults": { "unit": "s" }
+          },
+          "targets": [
+            {
+              "expr": "aws_alb_target_response_time_average{job=\"cloudwatch-exporter\"}",
+              "legendFormat": "average"
+            },
+            {
+              "expr": "aws_alb_target_response_time_p95{job=\"cloudwatch-exporter\"}",
+              "legendFormat": "p95"
+            },
+            {
+              "expr": "0.3",
+              "legendFormat": "p95 SLO objective (300ms)"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "title": "Request volume and errors",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+          "fieldConfig": {
+            "defaults": { "unit": "short" }
+          },
+          "targets": [
+            {
+              "expr": "aws_alb_request_count_sum{job=\"cloudwatch-exporter\"}",
+              "legendFormat": "requests"
+            },
+            {
+              "expr": "aws_alb_httpcode_target_5_xx_count_sum{job=\"cloudwatch-exporter\"} + aws_alb_httpcode_elb_5_xx_count_sum{job=\"cloudwatch-exporter\"}",
+              "legendFormat": "5xx"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "title": "30-day availability error-budget burn rate",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+          "description": "1.0 = burning the 0.5% monthly error budget exactly as fast as a steady 99.5% target allows. See slo-burn-rate-rules.yaml.",
+          "fieldConfig": {
+            "defaults": { "unit": "short" }
+          },
+          "targets": [
+            {
+              "expr": "buildcache:availability_error_ratio:avg1h / 0.005",
+              "legendFormat": "1h burn rate"
+            },
+            {
+              "expr": "buildcache:availability_error_ratio:avg6h / 0.005",
+              "legendFormat": "6h burn rate"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "title": "demo-spring-app request latency",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+          "description": "Needs demo-spring-app's own micrometer-registry-prometheus dependency and ServiceMonitor - no data until that's deployed.",
+          "fieldConfig": {
+            "defaults": { "unit": "s" }
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{job=\"demo-spring-app\"}[5m])) by (le))",
+              "legendFormat": "p95"
+            }
+          ]
+        }
+      ]
+    }

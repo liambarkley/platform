@@ -1,0 +1,134 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  sources:
+    - repoURL: https://prometheus-community.github.io/helm-charts
+      chart: kube-prometheus-stack
+      targetRevision: "92.16.2"
+      helm:
+        releaseName: monitoring
+        valuesObject:
+          prometheus:
+            prometheusSpec:
+              retention: 3d
+              # gp3, not the chart's default (none - PVCs are opt-in) - 8Gi comfortably covers
+              # 3 days of this project's low cardinality/volume. Running cost: ~US$0.64/month
+              # for the EBS volume if left up continuously, effectively a few cents per session
+              # given this project destroys envs/dev between sessions (docs/PLAN.md's cost
+              # section) - flagged per CLAUDE.md, not applied without Liam's apply either way.
+              storageSpec:
+                volumeClaimTemplate:
+                  spec:
+                    storageClassName: gp3
+                    accessModes: ["ReadWriteOnce"]
+                    resources:
+                      requests:
+                        storage: 8Gi
+              # Without these, the chart's Prometheus only watches ServiceMonitors/
+              # PodMonitors/PrometheusRules it created itself - cloudwatch-exporter.yaml's
+              # ServiceMonitor and slo-burn-rate-rules.yaml's PrometheusRule would be silently
+              # ignored otherwise.
+              serviceMonitorSelectorNilUsesHelmValues: false
+              podMonitorSelectorNilUsesHelmValues: false
+              ruleSelectorNilUsesHelmValues: false
+          alertmanager:
+            serviceAccount:
+              create: true
+              # Must match infra/modules/eks's alertmanager_service_account default - that's
+              # what the Pod Identity association granting secretsmanager:GetSecretValue on
+              # the SES SMTP key is bound to.
+              name: alertmanager
+            alertmanagerSpec:
+              replicas: 1
+              retention: 24h
+              volumes:
+                - name: smtp-creds
+                  emptyDir: {}
+                - name: smtp-derive-script
+                  configMap:
+                    name: alertmanager-ses-smtp-derive-script
+              # Two-step on purpose, not one: the first needs Pod Identity (AWS credentials,
+              # no Python); the second needs Python (no AWS credentials) - manifests/
+              # alertmanager-smtp-derive-script.yaml has the full derivation and why it isn't
+              # done in Terraform instead.
+              initContainers:
+                - name: fetch-ses-smtp-key
+                  image: public.ecr.aws/aws-cli/aws-cli:2.17.62
+                  command: ["sh", "-c"]
+                  args:
+                    - >-
+                      aws secretsmanager get-secret-value
+                      --secret-id build-cache-dev/alertmanager/ses-smtp-key
+                      --region ca-central-1 --query SecretString --output text
+                      > /creds/raw.json
+                  volumeMounts:
+                    - name: smtp-creds
+                      mountPath: /creds
+                - name: derive-smtp-password
+                  image: python:3.12-slim
+                  command: ["python3", "/scripts/derive_smtp_password.py"]
+                  volumeMounts:
+                    - name: smtp-creds
+                      mountPath: /creds
+                    - name: smtp-derive-script
+                      mountPath: /scripts
+              containers:
+                - name: alertmanager
+                  volumeMounts:
+                    - name: smtp-creds
+                      mountPath: /etc/alertmanager-secrets
+                      readOnly: true
+            config:
+              global:
+                resolve_timeout: 5m
+                smtp_from: liambarkley@gmail.com
+                smtp_smarthost: email-smtp.ca-central-1.amazonaws.com:587
+                smtp_require_tls: true
+                # Not literal values - files the initContainers above wrote at pod startup.
+                # Worth confirming at apply time against the chart's pinned Alertmanager
+                # version (see infra/modules/alerting/README.md's "worth confirming" note).
+                smtp_auth_username_file: /etc/alertmanager-secrets/smtp-username
+                smtp_auth_password_file: /etc/alertmanager-secrets/smtp-password
+              route:
+                receiver: email-liam
+                group_by: ["alertname", "slo", "severity"]
+                group_wait: 30s
+                group_interval: 5m
+                repeat_interval: 4h
+              receivers:
+                - name: email-liam
+                  email_configs:
+                    - to: liambarkley@gmail.com
+                      send_resolved: true
+          grafana:
+            defaultDashboardsEnabled: true
+            sidecar:
+              dashboards:
+                enabled: true
+                label: grafana_dashboard
+                labelValue: "1"
+            # Ephemeral, not persisted - dashboards are code (this app's manifests/), so
+            # nothing here would be lost on a pod restart worth paying for an extra EBS volume.
+            persistence:
+              enabled: false
+    # Everything that isn't the chart itself: the CloudWatch exporter substituting for the
+    # Build Cache Node's missing metrics endpoint, the SLO burn-rate PrometheusRule, the
+    # Alertmanager SMTP-derivation script, and the custom Grafana dashboard.
+    - repoURL: https://github.com/liambarkley/platform.git
+      targetRevision: main
+      path: apps/monitoring/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

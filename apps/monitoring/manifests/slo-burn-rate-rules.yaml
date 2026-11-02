@@ -1,0 +1,140 @@
+# Phase 4's two SLOs, both on the Build Cache Node, both scored from the ALB's CloudWatch
+# metrics via cloudwatch-exporter.yaml (YACE) - the Build Cache Node itself has no metrics
+# endpoint to score directly (see that file's header comment). Multi-window, multi-burn-rate
+# alerting per the Google SRE Workbook's standard recipe: a short+long window pair for each
+# severity so a brief blip can't page on its own (short window clears before the long one
+# confirms it), and a slow, sustained burn still pages well before the 30-day error budget is
+# actually exhausted. The burn-rate multipliers (14.4, 6) are the workbook's standard values
+# for "2% of a 30-day budget in 1h" and "5% of a 30-day budget in 6h" - they don't depend on
+# the specific target below, only the window/period ratio.
+#
+# YACE's "Sum" metrics are gauges - each scrape reports "the real CloudWatch Sum over the last
+# 300s" (cloudwatch-exporter.yaml's `length: 300`), not an ever-incrementing counter, so these
+# recording rules use avg_over_time rather than increase()/rate(). Taking the ratio of two
+# avg_over_time()s over the same window cancels out the per-sample normalization and
+# approximates the true ratio over that window, as long as the scrape period (60s) is much
+# shorter than the alerting window (the shortest here is 5m) - documented as an approximation,
+# not treated as exact.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: build-cache-node-slo-burn-rate
+  labels:
+    release: monitoring
+spec:
+  groups:
+    - name: build-cache-node-availability-slo
+      rules:
+        # SLI: fraction of requests to the Build Cache Node's ALB that do NOT come back 5xx
+        # (target- or ELB-generated). Objective: 99.5% over 30 days - error budget 0.5%, a
+        # deliberately loose target for a single-replica demo service with no real on-call.
+        - record: buildcache:availability_error_ratio:avg5m
+          expr: |
+            (
+              avg_over_time(aws_alb_httpcode_target_5_xx_count_sum{job="cloudwatch-exporter"}[5m])
+              + avg_over_time(aws_alb_httpcode_elb_5_xx_count_sum{job="cloudwatch-exporter"}[5m])
+            )
+            / avg_over_time(aws_alb_request_count_sum{job="cloudwatch-exporter"}[5m])
+        - record: buildcache:availability_error_ratio:avg30m
+          expr: |
+            (
+              avg_over_time(aws_alb_httpcode_target_5_xx_count_sum{job="cloudwatch-exporter"}[30m])
+              + avg_over_time(aws_alb_httpcode_elb_5_xx_count_sum{job="cloudwatch-exporter"}[30m])
+            )
+            / avg_over_time(aws_alb_request_count_sum{job="cloudwatch-exporter"}[30m])
+        - record: buildcache:availability_error_ratio:avg1h
+          expr: |
+            (
+              avg_over_time(aws_alb_httpcode_target_5_xx_count_sum{job="cloudwatch-exporter"}[1h])
+              + avg_over_time(aws_alb_httpcode_elb_5_xx_count_sum{job="cloudwatch-exporter"}[1h])
+            )
+            / avg_over_time(aws_alb_request_count_sum{job="cloudwatch-exporter"}[1h])
+        - record: buildcache:availability_error_ratio:avg6h
+          expr: |
+            (
+              avg_over_time(aws_alb_httpcode_target_5_xx_count_sum{job="cloudwatch-exporter"}[6h])
+              + avg_over_time(aws_alb_httpcode_elb_5_xx_count_sum{job="cloudwatch-exporter"}[6h])
+            )
+            / avg_over_time(aws_alb_request_count_sum{job="cloudwatch-exporter"}[6h])
+
+        # Fast burn: would exhaust the 30-day budget in <~2 days if sustained - page now.
+        - alert: BuildCacheAvailabilityBudgetBurnFast
+          expr: |
+            buildcache:availability_error_ratio:avg1h > (14.4 * 0.005)
+            and
+            buildcache:availability_error_ratio:avg5m > (14.4 * 0.005)
+          for: 2m
+          labels:
+            severity: critical
+            slo: build-cache-node-availability
+          annotations:
+            summary: "Build Cache Node error rate is burning the 30-day availability budget fast"
+            description: >-
+              5xx ratio has been above 7.2% for both the last hour and the last 5 minutes - at
+              this rate the 30-day 99.5% availability budget runs out in under 2 days. Check
+              `kubectl get pods -n build-cache-node` and the ALB target health first.
+
+        # Slow burn: would exhaust the budget in <~5-6 days if sustained - ticket, not page.
+        - alert: BuildCacheAvailabilityBudgetBurnSlow
+          expr: |
+            buildcache:availability_error_ratio:avg6h > (6 * 0.005)
+            and
+            buildcache:availability_error_ratio:avg30m > (6 * 0.005)
+          for: 15m
+          labels:
+            severity: warning
+            slo: build-cache-node-availability
+          annotations:
+            summary: "Build Cache Node error rate is slowly burning the 30-day availability budget"
+            description: >-
+              5xx ratio has been above 3.0% for both the last 6 hours and the last 30 minutes.
+
+    - name: build-cache-node-latency-slo
+      rules:
+        # SLI here is necessarily a simplification: the ALB only gives a pre-aggregated p95 per
+        # 1-minute window (TargetResponseTime, statistic p95), not a per-request histogram the
+        # Build Cache Node doesn't expose (see cloudwatch-exporter.yaml's header) - so instead
+        # of "fraction of good requests," the indicator is binary per 1-minute window: 1 if
+        # that window's own p95 exceeded the 300ms objective, 0 if not. Objective: at most 5% of
+        # 1-minute windows breach 300ms over 30 days.
+        - record: buildcache:latency_breach_indicator
+          expr: aws_alb_target_response_time_p95{job="cloudwatch-exporter"} > 0.3
+
+        - record: buildcache:latency_breach_ratio:avg5m
+          expr: avg_over_time(buildcache:latency_breach_indicator[5m])
+        - record: buildcache:latency_breach_ratio:avg30m
+          expr: avg_over_time(buildcache:latency_breach_indicator[30m])
+        - record: buildcache:latency_breach_ratio:avg1h
+          expr: avg_over_time(buildcache:latency_breach_indicator[1h])
+        - record: buildcache:latency_breach_ratio:avg6h
+          expr: avg_over_time(buildcache:latency_breach_indicator[6h])
+
+        - alert: BuildCacheLatencyBudgetBurnFast
+          expr: |
+            buildcache:latency_breach_ratio:avg1h > (14.4 * 0.05)
+            and
+            buildcache:latency_breach_ratio:avg5m > (14.4 * 0.05)
+          for: 2m
+          labels:
+            severity: critical
+            slo: build-cache-node-p95-latency
+          annotations:
+            summary: "Build Cache Node p95 latency is burning the 30-day latency budget fast"
+            description: >-
+              More than 72% of 1-minute windows have had p95 latency above 300ms for both the
+              last hour and the last 5 minutes.
+
+        - alert: BuildCacheLatencyBudgetBurnSlow
+          expr: |
+            buildcache:latency_breach_ratio:avg6h > (6 * 0.05)
+            and
+            buildcache:latency_breach_ratio:avg30m > (6 * 0.05)
+          for: 15m
+          labels:
+            severity: warning
+            slo: build-cache-node-p95-latency
+          annotations:
+            summary: "Build Cache Node p95 latency is slowly burning the 30-day latency budget"
+            description: >-
+              More than 30% of 1-minute windows have had p95 latency above 300ms for both the
+              last 6 hours and the last 30 minutes.

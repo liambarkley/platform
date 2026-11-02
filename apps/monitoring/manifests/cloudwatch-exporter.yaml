@@ -1,0 +1,119 @@
+# Substitute for the Build Cache Node's missing Prometheus endpoint (confirmed against the
+# official BCN manual - see infra/modules/eks's comment on the cloudwatch_exporter IAM role).
+# Discovers the Build Cache Node's ALB by its project=build-cache tag (never a hardcoded ARN -
+# that changes every time the AWS Load Balancer Controller recreates it) and turns its free
+# CloudWatch metrics into Prometheus series: HTTPCode_Target_2XX/4XX_Count as a cache hit/miss
+# proxy, TargetResponseTime for latency.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cloudwatch-exporter
+  # No eks.amazonaws.com/role-arn annotation - bound via EKS Pod Identity (infra/modules/eks),
+  # same reasoning as every other controller in this project: no AWS account ID in this repo.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudwatch-exporter-config
+data:
+  config.yml: |
+    apiVersion: v1alpha1
+    discovery:
+      jobs:
+        - type: AWS/ApplicationELB
+          regions:
+            - ca-central-1
+          searchTags:
+            - key: project
+              value: build-cache
+          # ALB publishes at 1-minute resolution by default (no "detailed monitoring" charge
+          # unlike EC2) - period matches that; length looks back far enough to smooth over a
+          # scrape landing just before a new datapoint is published.
+          period: 60
+          length: 300
+          metrics:
+            - name: RequestCount
+              statistics: [Sum]
+              nilToZero: true
+            - name: HTTPCode_Target_2XX_Count
+              statistics: [Sum]
+              nilToZero: true
+            - name: HTTPCode_Target_4XX_Count
+              statistics: [Sum]
+              nilToZero: true
+            - name: HTTPCode_Target_5XX_Count
+              statistics: [Sum]
+              nilToZero: true
+            - name: HTTPCode_ELB_5XX_Count
+              statistics: [Sum]
+              nilToZero: true
+            - name: TargetResponseTime
+              statistics: [Average, p95]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudwatch-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cloudwatch-exporter
+  template:
+    metadata:
+      labels:
+        app: cloudwatch-exporter
+    spec:
+      serviceAccountName: cloudwatch-exporter
+      containers:
+        - name: yace
+          # v0.68.0 - confirmed current against the project's GitHub releases; image repo
+          # confirmed against docs/installation.md (quay.io, not ghcr.io or Docker Hub).
+          image: quay.io/prometheuscommunity/yet-another-cloudwatch-exporter:v0.68.0
+          args:
+            - --config.file=/tmp/config.yml
+          ports:
+            - name: metrics
+              containerPort: 5000
+          volumeMounts:
+            - name: config
+              mountPath: /tmp/config.yml
+              subPath: config.yml
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+      volumes:
+        - name: config
+          configMap:
+            name: cloudwatch-exporter-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloudwatch-exporter
+  labels:
+    app: cloudwatch-exporter
+spec:
+  selector:
+    app: cloudwatch-exporter
+  ports:
+    - name: metrics
+      port: 5000
+      targetPort: metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cloudwatch-exporter
+  labels:
+    release: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: cloudwatch-exporter
+  endpoints:
+    - port: metrics
+      interval: 60s

@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-ses-smtp-derive-script
+data:
+  # Derives SES's SMTP password from the raw IAM secret access key (infra/modules/alerting's
+  # Secrets Manager secret, fetched by the preceding initContainer into /creds/raw.json) using
+  # AWS's own documented algorithm - the same HMAC-SHA256 chain SigV4 signing uses, with a
+  # fixed date ("11111111") and "SendRawEmail" as the final message instead of a real request.
+  # Runs once at pod startup, not in Terraform - see infra/modules/alerting/main.tf's comment
+  # on why (the `external` data source doesn't propagate sensitivity, so this would otherwise
+  # print the derived password in plain text in every PR's `terraform plan`).
+  derive_smtp_password.py: |
+    import base64
+    import hashlib
+    import hmac
+    import json
+
+    REGION = "ca-central-1"
+    DATE = "11111111"
+    SERVICE = "ses"
+    TERMINAL = "aws4_request"
+    MESSAGE = "SendRawEmail"
+    VERSION_BYTE = b"\x04"
+
+    def sign(key: bytes, msg: str) -> bytes:
+        return hmac.new(key, msg.encode("utf-8"), hashlib.sha256).digest()
+
+    with open("/creds/raw.json") as f:
+        creds = json.load(f)
+
+    signing_key = sign(("AWS4" + creds["secret_access_key"]).encode("utf-8"), DATE)
+    signing_key = sign(signing_key, REGION)
+    signing_key = sign(signing_key, SERVICE)
+    signing_key = sign(signing_key, TERMINAL)
+    signature = sign(signing_key, MESSAGE)
+
+    smtp_password = base64.b64encode(VERSION_BYTE + signature).decode("ascii")
+
+    with open("/creds/smtp-username", "w") as f:
+        f.write(creds["access_key_id"])
+
+    with open("/creds/smtp-password", "w") as f:
+        f.write(smtp_password)
