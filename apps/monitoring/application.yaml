@@ -37,6 +37,13 @@ spec:
               serviceMonitorSelectorNilUsesHelmValues: false
               podMonitorSelectorNilUsesHelmValues: false
               ruleSelectorNilUsesHelmValues: false
+              # Explicit, not left to the chart's default: demo-spring-app's ServiceMonitor
+              # (apps/demo-spring-app/manifests/servicemonitor.yaml) lives in the
+              # demo-spring-app namespace, not monitoring - an empty selector matches every
+              # namespace, a nil one would only match Prometheus's own.
+              serviceMonitorNamespaceSelector: {}
+              podMonitorNamespaceSelector: {}
+              ruleNamespaceSelector: {}
           alertmanager:
             serviceAccount:
               create: true

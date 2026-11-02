@@ -1,0 +1,20 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: demo-spring-app
+  labels:
+    release: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: demo-spring-app
+  namespaceSelector:
+    matchNames:
+      - demo-spring-app
+  endpoints:
+    # Needs demo-spring-app's micrometer-registry-prometheus dependency and
+    # management.endpoints.web.exposure.include: prometheus (demo-spring-app repo, added
+    # alongside this file) - without both, this path 404s.
+    - port: http
+      path: /actuator/prometheus
+      interval: 30s
