@@ -14,6 +14,18 @@ spec:
       helm:
         releaseName: monitoring
         valuesObject:
+          # Disables the whole admission-webhook Helm-hook chain (a ServiceAccount, Cluster-
+          # Role(Binding), Role(Binding), and two Jobs that generate/patch a webhook cert) -
+          # confirmed live: it repeatedly deadlocked ArgoCD's sync, waiting on a hook resource
+          # that Replace+prune's delete-then-recreate cycle had already deleted out from under
+          # it, with nothing left to recreate it. Helm hooks and ArgoCD's reconciliation model
+          # are a known rough combination generally, not specific to a mistake in this config.
+          # The webhook only validates PrometheusRule/Probe CR syntax at admission time - a
+          # nice-to-have, not needed for this project; a syntax error in slo-burn-rate-rules.yaml
+          # would still surface via `kubectl describe prometheusrule` instead.
+          prometheusOperator:
+            admissionWebhooks:
+              enabled: false
           prometheus:
             prometheusSpec:
               retention: 3d
