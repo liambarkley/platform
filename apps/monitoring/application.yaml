@@ -65,13 +65,15 @@ spec:
                 # calls SES's SendEmail API using its own execution role (a role, not a user -
                 # the SCP doesn't touch it). See that module's README for the full story.
                 #
-                # REPLACE-ME: infra/modules/alerting's webhook_url output, every time envs/dev
-                # is destroyed and recreated - same category of manual step as
-                # demo-spring-app's BUILD_CACHE_URL, and for the same reason (an AWS-generated
-                # value with no fixed name to read it back by). scripts/up.sh prints it.
+                # The url below has to be hand-copied again from infra/modules/alerting's
+                # webhook_url output every time envs/dev is destroyed and recreated - same
+                # category of manual step as demo-spring-app's BUILD_CACHE_URL, and for the
+                # same reason (an AWS-generated value with no fixed name to read it back by).
+                # scripts/up.sh prints it. Current value confirmed live 2026-11-03 against a
+                # real apply (API Gateway id omk0f01u0k).
                 - name: email-bridge
                   webhook_configs:
-                    - url: "https://REPLACE-ME.execute-api.ca-central-1.amazonaws.com/alert"
+                    - url: "https://omk0f01u0k.execute-api.ca-central-1.amazonaws.com/alert"
                       send_resolved: true
           grafana:
             defaultDashboardsEnabled: true
