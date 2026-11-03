@@ -18,15 +18,28 @@ spec:
         - key: karpenter.k8s.aws/instance-generation
           operator: Gt
           values: ["2"]
+        # Added phase 4, confirmed live: a lone "small"-sized node (t8i.small, 11-pod EKS
+        # limit) filled up from HA overhead alone - a CoreDNS replica, an EBS CSI controller
+        # replica, the LB controller, and monitoring's Prometheus operator all spread onto it
+        # on top of build-cache-node, maxing the 11-pod cap and leaving no room for
+        # node-exporter's DaemonSet pod. Karpenter won't fix an already-full node on its own
+        # (consolidation only acts on empty/underutilized nodes, and a lone pending DaemonSet
+        # pod doesn't trigger new-node provisioning the way a regular pod does) - excluding the
+        # smallest sizes means the *next* node Karpenter provisions has more headroom to begin
+        # with. Doesn't un-stick the node that's already full; that needs a manual
+        # cordon/drain or Karpenter's own 720h node expiry.
+        - key: karpenter.k8s.aws/instance-size
+          operator: NotIn
+          values: ["nano", "micro", "small"]
       nodeClassRef:
         group: karpenter.k8s.aws
         kind: EC2NodeClass
         name: default
       # Replace nodes periodically rather than let them run forever - picks up AMI patches.
       expireAfter: 720h
-  # Deliberately small: nothing schedules workloads here yet (phase 3). Caps the blast radius
-  # of a misconfigured pod spec causing Karpenter to over-provision - raise this once the
-  # build cache node and demo app are actually running.
+  # Caps the blast radius of a misconfigured pod spec causing Karpenter to over-provision.
+  # Build-cache-node, demo-spring-app and monitoring's operator all run on Karpenter-provisioned
+  # capacity now (phases 3-4) - raise this if a real workload ever gets throttled by it.
   limits:
     cpu: "8"
     memory: 16Gi
