@@ -26,6 +26,13 @@ spec:
           prometheusOperator:
             admissionWebhooks:
               enabled: false
+            # Confirmed live: with admissionWebhooks disabled, the operator still tried to
+            # start its own TLS-serving webhook port by default and crash-looped
+            # ("failed to load serving certificate and key: open /cert/cert: no such file or
+            # directory") - that cert was supplied by the same hook Jobs admissionWebhooks
+            # disabled. This is the separate, correct flag for the operator's own listener.
+            tls:
+              enabled: false
           prometheus:
             prometheusSpec:
               retention: 3d
