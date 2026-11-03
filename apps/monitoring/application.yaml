@@ -108,3 +108,17 @@ spec:
       # Server-side apply doesn't use that annotation at all. A known kube-prometheus-stack-
       # on-ArgoCD gotcha, not specific to anything else in this app.
       - ServerSideApply=true
+      # Confirmed live: ServerSideApply alone still isn't enough on this install (v3.5.6) - a
+      # real, confirmed-upstream regression (argoproj/argo-cd#28421, fixed in neither v3.5.0
+      # nor this version): even with ServerSideApply=true, the dry-run validation step still
+      # runs as client-side apply + server dry-run for any resource over 256KiB, sending the
+      # oversized last-applied-configuration annotation and getting rejected before the real
+      # (correctly server-side) apply ever runs. The maintainers' own documented workaround is
+      # adding Replace=true alongside ServerSideApply=true specifically to skip that broken
+      # dry-run path. `argocd app sync` (the manual CLI/API path, server/application/
+      # application.go's Sync RPC) separately refuses Replace via a server-level
+      # syncWithReplaceAllowed flag - but that check is specific to that one RPC handler, not
+      # the application-controller's own automated/selfHeal reconciliation loop, which runs
+      # through gitops-engine directly and never calls it. Set here, synced via selfHeal
+      # (automated above), not via `argocd app sync`.
+      - Replace=true
