@@ -14,6 +14,20 @@ spec:
       helm:
         releaseName: monitoring
         valuesObject:
+          # Confirmed live: KubeControllerManagerDown and KubeSchedulerDown (both severity
+          # critical, both chart defaults) fired immediately and permanently on this cluster -
+          # not a misconfiguration, a known EKS/GKE/AKS incompatibility. These rules assume a
+          # self-managed control plane with kube-controller-manager/kube-scheduler/kube-proxy/
+          # etcd targets to scrape; on managed EKS, AWS runs the control plane and none of
+          # those are exposed, so the chart's `absent()` rules for them never stop firing.
+          # Disabling the four classic offenders rather than leaving real alert noise flowing
+          # to a real inbox for conditions that can never actually be fixed.
+          defaultRules:
+            rules:
+              kubeControllerManager: false
+              kubeScheduler: false
+              kubeProxy: false
+              etcd: false
           # Disables the whole admission-webhook Helm-hook chain (a ServiceAccount, Cluster-
           # Role(Binding), Role(Binding), and two Jobs that generate/patch a webhook cert) -
           # confirmed live: it repeatedly deadlocked ArgoCD's sync, waiting on a hook resource
