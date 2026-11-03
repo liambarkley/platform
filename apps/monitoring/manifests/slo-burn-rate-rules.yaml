@@ -113,8 +113,15 @@ spec:
         # of "fraction of good requests," the indicator is binary per 1-minute window: 1 if
         # that window's own p95 exceeded the 300ms objective, 0 if not. Objective: at most 5% of
         # 1-minute windows breach 300ms over 30 days.
+        # `> bool`, not a bare `>` - confirmed live: without `bool`, `A > B` is a PromQL
+        # *filter* (returns only matching series, at their original value), not a true 0/1
+        # indicator - when p95 is fine, the filter matches nothing, so this would produce NO
+        # series rather than "0", and avg_over_time over an absent series is itself absent,
+        # not 0. Same underlying class of bug as the availability SLI (a technically-valid
+        # expression that silently never represents the healthy baseline) - caught the same
+        # way, by checking real query output instead of trusting health=ok.
         - record: buildcache:latency_breach_indicator
-          expr: aws_applicationelb_target_response_time_p95{job="cloudwatch-exporter"} > 0.3
+          expr: aws_applicationelb_target_response_time_p95{job="cloudwatch-exporter"} > bool 0.3
 
         - record: buildcache:latency_breach_ratio:avg5m
           expr: avg_over_time(buildcache:latency_breach_indicator[5m])
