@@ -50,21 +50,29 @@ long window confirms a real sustained burn.
 
 ## Alertmanager -> real email
 
-The one deliberate exception to this project's otherwise keyless pattern - see
-`infra/modules/alerting/README.md` for the full reasoning (SES's SMTP endpoint has no SigV4
-equivalent, so a real IAM access key has to exist somewhere) and the one manual step it still
-needs (clicking the SES verification email). Two initContainers on the Alertmanager pod turn
-that raw key into the derived SMTP password at startup, writing both as files
-(`smtp_auth_username_file`/`smtp_auth_password_file`) rather than literal values in this
-chart's values - `manifests/alertmanager-smtp-derive-script.yaml` has the derivation itself
-(AWS's documented SigV4-style algorithm) and `application.yaml`'s `alertmanagerSpec` wires the
-two containers together via a shared `emptyDir`.
+Not SMTP: the first version of this routed through SES's SMTP endpoint (an IAM user + access
+key, since SMTP AUTH has no role-based equivalent) and failed on a real apply - this account's
+landing-zone SCP (`workloads-guardrails` -> `DenyIamUserAndAccessKeyCreation`,
+`infra/landing-zone/scps.tf`) flatly denies `iam:CreateUser`/`iam:CreateAccessKey` across the
+whole Workloads OU, a guardrail set up deliberately in phase 1. See
+`infra/modules/alerting/README.md` for the full story.
 
-**Worth confirming at apply time, not assumed here**: whether the pinned chart's Alertmanager
-version actually supports `smtp_auth_username_file` (not just `_password_file` - both were
-added together, but hasn't been checked against this exact pinned version live). If it turns
-out not to, the fallback is templating the username into the config via an `envsubst` init step
-instead of a literal file reference.
+Alertmanager's `receivers` here use a plain `webhook_configs` instead, POSTing to
+`infra/modules/alerting`'s API Gateway URL. A small Lambda behind that URL calls SES's
+`SendEmail` **API** (not SMTP) using its own execution role - a real IAM role, which the SCP
+doesn't touch at all. No long-lived credential exists anywhere in this path, and Alertmanager
+itself needs no AWS permissions or Pod Identity role any more - it's an unauthenticated HTTPS
+POST to a bridge that holds the real credential.
+
+**Two manual steps**, same shape as `demo-spring-app`'s `BUILD_CACHE_URL`:
+
+1. Clicking the SES verification email (`infra/modules/alerting/README.md`) - sends fail,
+   loudly, in the Lambda's own CloudWatch Logs, until that identity shows Verified.
+2. Copying `infra/modules/alerting`'s `webhook_url` output into this file's
+   `alertmanager.config.receivers` `webhook_configs` `url` (currently a `REPLACE-ME`
+   placeholder) - it's AWS-generated and changes every time `envs/dev` is destroyed and
+   recreated, and unlike the old SMTP password there's no secret-file trick available for a
+   plain webhook URL. `scripts/up.sh` prints it for exactly this reason.
 
 ## Cost, flagged per CLAUDE.md
 
