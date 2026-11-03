@@ -15,6 +15,15 @@
 # approximates the true ratio over that window, as long as the scrape period (60s) is much
 # shorter than the alerting window (the shortest here is 5m) - documented as an approximation,
 # not treated as exact.
+#
+# Metric names use aws_applicationelb_ (not aws_alb_, which was this file's original, wrong
+# assumption) - confirmed live by reading YACE's own /metrics endpoint directly: the "alb"
+# string in its source (pkg/config/services.go, Alias: "alb") turned out to be an internal
+# display name only, not the actual Prometheus metric prefix it generates. The recording
+# rules below evaluated with health=ok the whole time regardless (a PromQL expression
+# referencing a metric that doesn't exist is valid, it just returns no series) - this is
+# exactly the kind of gap that "health=ok" alone can't catch; only checking against real,
+# live `/metrics` output caught it.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -31,31 +40,31 @@ spec:
         - record: buildcache:availability_error_ratio:avg5m
           expr: |
             (
-              avg_over_time(aws_alb_httpcode_target_5_xx_count_sum{job="cloudwatch-exporter"}[5m])
-              + avg_over_time(aws_alb_httpcode_elb_5_xx_count_sum{job="cloudwatch-exporter"}[5m])
+              avg_over_time(aws_applicationelb_httpcode_target_5_xx_count_sum{job="cloudwatch-exporter"}[5m])
+              + avg_over_time(aws_applicationelb_httpcode_elb_5_xx_count_sum{job="cloudwatch-exporter"}[5m])
             )
-            / avg_over_time(aws_alb_request_count_sum{job="cloudwatch-exporter"}[5m])
+            / avg_over_time(aws_applicationelb_request_count_sum{job="cloudwatch-exporter"}[5m])
         - record: buildcache:availability_error_ratio:avg30m
           expr: |
             (
-              avg_over_time(aws_alb_httpcode_target_5_xx_count_sum{job="cloudwatch-exporter"}[30m])
-              + avg_over_time(aws_alb_httpcode_elb_5_xx_count_sum{job="cloudwatch-exporter"}[30m])
+              avg_over_time(aws_applicationelb_httpcode_target_5_xx_count_sum{job="cloudwatch-exporter"}[30m])
+              + avg_over_time(aws_applicationelb_httpcode_elb_5_xx_count_sum{job="cloudwatch-exporter"}[30m])
             )
-            / avg_over_time(aws_alb_request_count_sum{job="cloudwatch-exporter"}[30m])
+            / avg_over_time(aws_applicationelb_request_count_sum{job="cloudwatch-exporter"}[30m])
         - record: buildcache:availability_error_ratio:avg1h
           expr: |
             (
-              avg_over_time(aws_alb_httpcode_target_5_xx_count_sum{job="cloudwatch-exporter"}[1h])
-              + avg_over_time(aws_alb_httpcode_elb_5_xx_count_sum{job="cloudwatch-exporter"}[1h])
+              avg_over_time(aws_applicationelb_httpcode_target_5_xx_count_sum{job="cloudwatch-exporter"}[1h])
+              + avg_over_time(aws_applicationelb_httpcode_elb_5_xx_count_sum{job="cloudwatch-exporter"}[1h])
             )
-            / avg_over_time(aws_alb_request_count_sum{job="cloudwatch-exporter"}[1h])
+            / avg_over_time(aws_applicationelb_request_count_sum{job="cloudwatch-exporter"}[1h])
         - record: buildcache:availability_error_ratio:avg6h
           expr: |
             (
-              avg_over_time(aws_alb_httpcode_target_5_xx_count_sum{job="cloudwatch-exporter"}[6h])
-              + avg_over_time(aws_alb_httpcode_elb_5_xx_count_sum{job="cloudwatch-exporter"}[6h])
+              avg_over_time(aws_applicationelb_httpcode_target_5_xx_count_sum{job="cloudwatch-exporter"}[6h])
+              + avg_over_time(aws_applicationelb_httpcode_elb_5_xx_count_sum{job="cloudwatch-exporter"}[6h])
             )
-            / avg_over_time(aws_alb_request_count_sum{job="cloudwatch-exporter"}[6h])
+            / avg_over_time(aws_applicationelb_request_count_sum{job="cloudwatch-exporter"}[6h])
 
         # Fast burn: would exhaust the 30-day budget in <~2 days if sustained - page now.
         - alert: BuildCacheAvailabilityBudgetBurnFast
@@ -98,7 +107,7 @@ spec:
         # that window's own p95 exceeded the 300ms objective, 0 if not. Objective: at most 5% of
         # 1-minute windows breach 300ms over 30 days.
         - record: buildcache:latency_breach_indicator
-          expr: aws_alb_target_response_time_p95{job="cloudwatch-exporter"} > 0.3
+          expr: aws_applicationelb_target_response_time_p95{job="cloudwatch-exporter"} > 0.3
 
         - record: buildcache:latency_breach_ratio:avg5m
           expr: avg_over_time(buildcache:latency_breach_indicator[5m])

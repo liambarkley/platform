@@ -31,7 +31,7 @@ data:
           },
           "targets": [
             {
-              "expr": "aws_alb_httpcode_target_2_xx_count_sum{job=\"cloudwatch-exporter\"} / clamp_min(aws_alb_request_count_sum{job=\"cloudwatch-exporter\"}, 1)",
+              "expr": "aws_applicationelb_httpcode_target_2_xx_count_sum{job=\"cloudwatch-exporter\"} / clamp_min(aws_applicationelb_request_count_sum{job=\"cloudwatch-exporter\"}, 1)",
               "legendFormat": "hit rate"
             }
           ]
@@ -46,11 +46,11 @@ data:
           },
           "targets": [
             {
-              "expr": "aws_alb_target_response_time_average{job=\"cloudwatch-exporter\"}",
+              "expr": "aws_applicationelb_target_response_time_average{job=\"cloudwatch-exporter\"}",
               "legendFormat": "average"
             },
             {
-              "expr": "aws_alb_target_response_time_p95{job=\"cloudwatch-exporter\"}",
+              "expr": "aws_applicationelb_target_response_time_p95{job=\"cloudwatch-exporter\"}",
               "legendFormat": "p95"
             },
             {
@@ -69,11 +69,11 @@ data:
           },
           "targets": [
             {
-              "expr": "aws_alb_request_count_sum{job=\"cloudwatch-exporter\"}",
+              "expr": "aws_applicationelb_request_count_sum{job=\"cloudwatch-exporter\"}",
               "legendFormat": "requests"
             },
             {
-              "expr": "aws_alb_httpcode_target_5_xx_count_sum{job=\"cloudwatch-exporter\"} + aws_alb_httpcode_elb_5_xx_count_sum{job=\"cloudwatch-exporter\"}",
+              "expr": "aws_applicationelb_httpcode_target_5_xx_count_sum{job=\"cloudwatch-exporter\"} + aws_applicationelb_httpcode_elb_5_xx_count_sum{job=\"cloudwatch-exporter\"}",
               "legendFormat": "5xx"
             }
           ]
