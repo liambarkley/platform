@@ -108,11 +108,3 @@ spec:
       # Server-side apply doesn't use that annotation at all. A known kube-prometheus-stack-
       # on-ArgoCD gotcha, not specific to anything else in this app.
       - ServerSideApply=true
-      # Also needed live, confirmed the hard way: ServerSideApply alone still hit the same
-      # "metadata.annotations: Too long" error on these same six CRDs - ArgoCD appears to
-      # apply a Helm chart's crds/ directory through a path that doesn't fully honor
-      # ServerSideApply by itself. The API server's own error text names Replace as the
-      # other valid fix, so adding it alongside ServerSideApply. No destructive effect
-      # expected here specifically - these are brand-new CRDs on first create, not
-      # pre-existing resources with data to lose.
-      - Replace=true
