@@ -94,6 +94,19 @@ spec:
                   webhook_configs:
                     - url: "https://omk0f01u0k.execute-api.ca-central-1.amazonaws.com/alert"
                       send_resolved: true
+                # Confirmed live: the chart injects a default child route (route.routes,
+                # untouched here since this config only overrides route's top-level keys) that
+                # sends the synthetic "Watchdog" heartbeat alert (always-firing, proves the
+                # pipeline is alive - part of the chart's default rule set) to a receiver named
+                # "null". Overriding `receivers` wholesale (Helm merges lists by replacement,
+                # not by element) dropped the chart's own matching "null" receiver, leaving that
+                # route pointing at nothing ("provision alertmanager configuration: ... failed
+                # to initialize from secret: undefined receiver \"null\" used in route" -
+                # Alertmanager never reconciled at all as a result). Adding it back, empty
+                # (no configs = silently drop), rather than deleting the route - Watchdog is
+                # supposed to fire constantly and should stay silenced, not forwarded as a
+                # real alert every cycle.
+                - name: "null"
           grafana:
             defaultDashboardsEnabled: true
             sidecar:
