@@ -34,37 +34,44 @@ spec:
   groups:
     - name: build-cache-node-availability-slo
       rules:
-        # SLI: fraction of requests to the Build Cache Node's ALB that do NOT come back 5xx
-        # (target- or ELB-generated). Objective: 99.5% over 30 days - error budget 0.5%, a
-        # deliberately loose target for a single-replica demo service with no real on-call.
+        # SLI: 1 - (2xx requests / total requests), not "5xx requests / total" as originally
+        # written. Confirmed live: HTTPCode_Target_5XX_Count (and _ELB_5XX_Count) have never
+        # once fired on this ALB, and CloudWatch's ListMetrics simply never indexes a metric
+        # it has never seen emitted - nilToZero (cloudwatch-exporter.yaml) only fills in a
+        # missing *datapoint* for a metric YACE already knows to ask about; it can't make
+        # YACE discover a metric CloudWatch has never indexed in the first place. The 5xx-count
+        # recording rules evaluated with health=ok and silently produced zero series, forever,
+        # on a healthy ALB - a real structural gap this project's own README (Build Cache Node
+        # README's "limitations" style) is worth remembering, not just this comment. 2xx counts
+        # don't have this problem - they fire on every single request, including the ALB's own
+        # health checks, so this metric is never sparse. Same "good/total" shape as the Google
+        # SRE Workbook's own canonical availability SLI example, not a workaround.
+        # Objective: 99.5% over 30 days - error budget 0.5%, a deliberately loose target for a
+        # single-replica demo service with no real on-call.
         - record: buildcache:availability_error_ratio:avg5m
           expr: |
-            (
-              avg_over_time(aws_applicationelb_httpcode_target_5_xx_count_sum{job="cloudwatch-exporter"}[5m])
-              + avg_over_time(aws_applicationelb_httpcode_elb_5_xx_count_sum{job="cloudwatch-exporter"}[5m])
+            1 - (
+              avg_over_time(aws_applicationelb_httpcode_target_2_xx_count_sum{job="cloudwatch-exporter"}[5m])
+              / avg_over_time(aws_applicationelb_request_count_sum{job="cloudwatch-exporter"}[5m])
             )
-            / avg_over_time(aws_applicationelb_request_count_sum{job="cloudwatch-exporter"}[5m])
         - record: buildcache:availability_error_ratio:avg30m
           expr: |
-            (
-              avg_over_time(aws_applicationelb_httpcode_target_5_xx_count_sum{job="cloudwatch-exporter"}[30m])
-              + avg_over_time(aws_applicationelb_httpcode_elb_5_xx_count_sum{job="cloudwatch-exporter"}[30m])
+            1 - (
+              avg_over_time(aws_applicationelb_httpcode_target_2_xx_count_sum{job="cloudwatch-exporter"}[30m])
+              / avg_over_time(aws_applicationelb_request_count_sum{job="cloudwatch-exporter"}[30m])
             )
-            / avg_over_time(aws_applicationelb_request_count_sum{job="cloudwatch-exporter"}[30m])
         - record: buildcache:availability_error_ratio:avg1h
           expr: |
-            (
-              avg_over_time(aws_applicationelb_httpcode_target_5_xx_count_sum{job="cloudwatch-exporter"}[1h])
-              + avg_over_time(aws_applicationelb_httpcode_elb_5_xx_count_sum{job="cloudwatch-exporter"}[1h])
+            1 - (
+              avg_over_time(aws_applicationelb_httpcode_target_2_xx_count_sum{job="cloudwatch-exporter"}[1h])
+              / avg_over_time(aws_applicationelb_request_count_sum{job="cloudwatch-exporter"}[1h])
             )
-            / avg_over_time(aws_applicationelb_request_count_sum{job="cloudwatch-exporter"}[1h])
         - record: buildcache:availability_error_ratio:avg6h
           expr: |
-            (
-              avg_over_time(aws_applicationelb_httpcode_target_5_xx_count_sum{job="cloudwatch-exporter"}[6h])
-              + avg_over_time(aws_applicationelb_httpcode_elb_5_xx_count_sum{job="cloudwatch-exporter"}[6h])
+            1 - (
+              avg_over_time(aws_applicationelb_httpcode_target_2_xx_count_sum{job="cloudwatch-exporter"}[6h])
+              / avg_over_time(aws_applicationelb_request_count_sum{job="cloudwatch-exporter"}[6h])
             )
-            / avg_over_time(aws_applicationelb_request_count_sum{job="cloudwatch-exporter"}[6h])
 
         # Fast burn: would exhaust the 30-day budget in <~2 days if sustained - page now.
         - alert: BuildCacheAvailabilityBudgetBurnFast
