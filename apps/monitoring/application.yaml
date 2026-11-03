@@ -89,10 +89,12 @@ spec:
                 # category of manual step as demo-spring-app's BUILD_CACHE_URL, and for the
                 # same reason (an AWS-generated value with no fixed name to read it back by).
                 # scripts/up.sh prints it. Current value confirmed live 2026-11-03 against a
-                # real apply (API Gateway id omk0f01u0k).
+                # fresh from-scratch bring-up (API Gateway id 7mjdm6uhba) - this is the second
+                # such ID this project has had; it changes every destroy/recreate cycle, same
+                # as the ALB hostname.
                 - name: email-bridge
                   webhook_configs:
-                    - url: "https://omk0f01u0k.execute-api.ca-central-1.amazonaws.com/alert"
+                    - url: "https://7mjdm6uhba.execute-api.ca-central-1.amazonaws.com/alert"
                       send_resolved: true
                 # Confirmed live: the chart injects a default child route (route.routes,
                 # untouched here since this config only overrides route's top-level keys) that
